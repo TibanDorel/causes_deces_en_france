@@ -1,0 +1,134 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+# Load the necessary libraries
+library(leaflet)
+library(sf)
+suppressWarnings(library(dplyr))
+library(readr)
+```
+
+
+```{r}
+# Load the geojson file
+geojson <- geojsonio::geojson_read("map_departements.geojson", what = "sp")
+
+# Convert the geojson to a simple feature collection
+sf <- st_as_sf(geojson)
+
+# Specify the column classes
+col_classes <- c("character","character", "character", "character", "character", "numeric")
+
+# Read the CSV file
+data <- read.csv("data_death.csv", sep = ";", colClasses = col_classes)
+
+# Drop the 'year_of_death' and 'sex' columns
+data <- data %>% select(-year_of_death, -sex)
+
+# Get all unique disease types
+unique_diseases <- unique(data$disease)
+
+print(data)
+```
+
+```{r}
+create_map <- function(chosen_disease,data,geojson_file){
+#Get the total number of death for each department
+total_data <- aggregate(number_of_death ~ code, data, sum)
+# Rename the column
+total_data <- rename(total_data, total_number_of_death = number_of_death)
+  
+# keep only the rows for this specific disease
+data <- data %>% filter(disease == chosen_disease)
+
+# Sum the number of death per department
+summed_data <- aggregate(number_of_death ~ code, data, sum)
+
+# Merge the two data frames on the 'code' column
+merged_data <- merge(summed_data, total_data, by = "code")
+
+# Create a new column for the ratio with 4 decimals
+merged_data$ratio <- round(100*(merged_data$number_of_death / merged_data$total_number_of_death),2)
+
+
+# Join the this data frame with the geojson file
+joined_data <- left_join(geojson_file, merged_data, by = "code")
+
+# Create a palette function
+pal <- colorBin(palette = "YlOrRd", domain = joined_data$ratio, bins = 5)
+
+m <- leaflet()
+m <- addProviderTiles(m, "OpenStreetMap.Mapnik")
+m <- addPolygons(m, data = joined_data, color = "#03F", weight = 1, smoothFactor = 0.5,
+                 opacity = 1, fillOpacity = 0.5,
+                 fillColor = ~pal(ratio),  # Use the palette function here
+                 highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                     bringToFront = TRUE),
+                 label = ~ratio,
+                 labelOptions = labelOptions(noHide = FALSE, direction = 'auto'))
+
+m <- addControl(m, 
+                html = as.character(chosen_disease), 
+                position = "topright")
+
+return(m)
+  
+}
+
+
+
+```
+
+
+```{r}
+create_map("14. Certaines affections dont l’origine se situe dans la période périnatale",data,geojson_file)
+
+```
+
+```{r}
+# Iterate over each unique disease type
+for (chosen_disease in unique_diseases) {
+  # Call the create_map function and store the result
+  m <- create_map(chosen_disease, data, geojson_file)
+  
+  # Print the map
+  print(m)
+}
+
+
+```
+
+
+```{r}
+filter_age <- function(age_min, age_max, data) {
+  # Create a sequence of age ranges
+  age_ranges <- c("< 1", paste(seq(1, 85, by = 24), seq(24, 94, by = 24), sep = "-"), "95p")
+  
+  # Find the indices of age_min and age_max in age_ranges
+  min_index <- match(age_min, age_ranges)
+  max_index <- match(age_max, age_ranges)
+  
+  # Filter the data
+  data <- data[data$age %in% age_ranges[min_index:max_index], ]
+  
+  return(data)
+}
+
+filter_age(25,94,data)
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
